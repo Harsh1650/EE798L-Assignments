@@ -1,0 +1,72 @@
+%% Starting and generating the values
+clc;
+clear all;
+close all;
+
+% Generate design matrix
+N = 20;
+M = 40;
+Phi = randn(N, M);
+
+% Generate sparse weight vector
+D0 = 7;
+w = zeros(M, 1);
+w(randperm(M, D0)) = randn(D0, 1);
+
+% Test Variances given to us.
+variances_dB = [-20, -15, -10, -5, 0];
+variances = 10.^(variances_dB./10);
+
+% Preallocate arrays for results
+nmse = zeros(1, length(variances));
+w_mp = zeros(M, length(variances));
+nmse_particular_variance = zeros(1, length(variances));
+t_all = zeros(N, length(variances)); % this contains value of t for all sigma or variance given to us
+% Number of iterations for Monte Carlo averaging
+numberOfIterations = 50000;
+for i = 1:length(variances)
+    % Choose a particular variance
+    var = variances(i);
+    for j = 1:numberOfIterations
+        % Assume all hyperparameters alpha equal to 100 initially
+        alpha = 100;
+        A = alpha * eye(M);
+        
+        % Generate noise
+        noise = sqrt(var) * randn(N, 1);
+        
+        % Generate target values
+        t = Phi * w + noise;
+        t_all(:,i) = t; % Stores value of t for every alpha in corresponding position
+        % Calculate posterior mean and covariance
+        SIGMA = inv((Phi'*Phi/var)+A); % SIGMA is posterior covariance
+        posterior_mean = (SIGMA*Phi'*t)/var;
+        
+        % Iterate until convergence
+        eps = 1e-3; % This is given condition for convergance
+        while true
+            Gamma = (1-(diag(A).*diag(SIGMA)))'; % This stored the gamma value that is gamma_i = 1 - alpha_i*Sigma_ii
+            alpha = Gamma'./(posterior_mean.^2); % Calculation of updated hyperparameter
+            A = diag(alpha); % Contains hyperparameters
+            SIGMA = inv((Phi'*Phi/var)+A); % 
+            posterior_mean_new = (SIGMA*Phi'*t)/var;
+            if norm(posterior_mean_new - posterior_mean)^2 <= eps*(norm(posterior_mean)^2) || det(SIGMA) < 1e-50
+                w_mp(:, j) = posterior_mean_new;
+                break;
+            end
+            posterior_mean = posterior_mean_new;
+        end
+        nmse_particular_variance(j) = norm(w_mp(:, j) - w)^2 / norm(w)^2;
+    end
+    
+    % Do Monte Carlo averaging to get better NMSE values
+    nmse(i) = sum(nmse_particular_variance) / numberOfIterations;
+end
+
+% Plot NMSE vs Variances
+plot(variances, nmse, '-*', 'Color', 'r');
+title('NMSE vs Variances', 'FontSize', 16, 'FontWeight', 'bold');
+xlabel('Variance', 'FontSize', 15, 'FontWeight', 'bold');
+ylabel('NMSE', 'FontSize', 15, 'FontWeight', 'bold');
+nmse 
+variances
